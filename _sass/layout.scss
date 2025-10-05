@@ -85,6 +85,19 @@
     justify-content: space-between;
     height: $header-height;
   }
+
+  // On mobile, when nav is open, position search at top of viewport
+  &.nav-open {
+    position: fixed;
+    top: $header-height;
+    left: 0;
+    right: 0;
+    z-index: 1;
+
+    @include mq(md) {
+      position: static;
+    }
+  }
 }
 
 .site-nav,
