@@ -57,14 +57,25 @@ function initNav() {
   });
 
   {%- if site.search_enabled != false and site.search.button %}
-  const searchInput = document.getElementById('search-input');
+  const searchInputButton = document.getElementById('search-input');
+  const searchInputSidebarButton = document.getElementById('search-input-sidebar');
   const searchButton = document.getElementById('search-button');
 
   jtd.addEvent(searchButton, 'click', function(e){
     e.preventDefault();
 
-    mainHeader.classList.add('nav-open');
-    searchInput.focus();
+    // Focus the appropriate search input based on which one is visible
+    var activeInput = null;
+    if (searchInputSidebarButton && window.getComputedStyle(searchInputSidebarButton.closest('.search-sidebar')).display !== 'none') {
+      activeInput = searchInputSidebarButton;
+    } else if (searchInputButton) {
+      activeInput = searchInputButton;
+    }
+
+    if (activeInput) {
+      mainHeader.classList.add('nav-open');
+      activeInput.focus();
+    }
   });
   {%- endif %}
 }
@@ -141,10 +152,30 @@ function searchLoaded(index, docs) {
   var index = index;
   var docs = docs;
   var searchInput = document.getElementById('search-input');
+  var searchInputSidebar = document.getElementById('search-input-sidebar');
   var searchResults = document.getElementById('search-results');
+  var searchResultsSidebar = document.getElementById('search-results-sidebar');
   var mainHeader = document.getElementById('main-header');
   var currentInput;
   var currentSearchIndex = 0;
+
+  // Helper function to sync search inputs
+  function syncSearchInputs(sourceInput, targetInput) {
+    if (targetInput && sourceInput.value !== targetInput.value) {
+      targetInput.value = sourceInput.value;
+    }
+  }
+
+  // Helper function to get current active search input and results
+  function getActiveSearchElements() {
+    // Determine which search input is currently visible/active
+    if (searchInputSidebar && window.getComputedStyle(searchInputSidebar.closest('.search-sidebar')).display !== 'none') {
+      return {input: searchInputSidebar, results: searchResultsSidebar};
+    } else if (searchInput) {
+      return {input: searchInput, results: searchResults};
+    }
+    return {input: searchInput, results: searchResults}; // fallback
+  }
 
   {%- if site.search.focus_shortcut_key %}
   // add event listener on ctrl + <focus_shortcut_key> for showing the search input
@@ -152,8 +183,12 @@ function searchLoaded(index, docs) {
     if ((e.ctrlKey || e.metaKey) && e.key === '{{ site.search.focus_shortcut_key }}') {
       e.preventDefault();
 
-      mainHeader.classList.add('nav-open');
-      searchInput.focus();
+      // Focus the appropriate search input based on which one is visible
+      var activeElements = getActiveSearchElements();
+      if (activeElements.input) {
+        mainHeader.classList.add('nav-open');
+        activeElements.input.focus();
+      }
     }
   });
   {%- endif %}
@@ -166,10 +201,20 @@ function searchLoaded(index, docs) {
     document.documentElement.classList.remove('search-active');
   }
 
-  function update() {
+  function update(sourceInput) {
     currentSearchIndex++;
-
-    var input = searchInput.value;
+    var activeElements = getActiveSearchElements();
+    var input = sourceInput ? sourceInput.value : activeElements.input.value;
+    
+    // Sync both search inputs
+    if (sourceInput) {
+      if (sourceInput === searchInput && searchInputSidebar) {
+        syncSearchInputs(sourceInput, searchInputSidebar);
+      } else if (sourceInput === searchInputSidebar && searchInput) {
+        syncSearchInputs(sourceInput, searchInput);
+      }
+    }
+    
     if (input === '') {
       hideSearch();
     } else {
@@ -182,7 +227,11 @@ function searchLoaded(index, docs) {
       return;
     }
     currentInput = input;
-    searchResults.innerHTML = '';
+    
+    // Clear both search results
+    if (searchResults) searchResults.innerHTML = '';
+    if (searchResultsSidebar) searchResultsSidebar.innerHTML = '';
+    
     if (input === '') {
       return;
     }
@@ -210,16 +259,18 @@ function searchLoaded(index, docs) {
       }
     }
 
+    var activeElements = getActiveSearchElements();
+    
     if (results.length == 0) {
       var noResultsDiv = document.createElement('div');
       noResultsDiv.classList.add('search-no-result');
       noResultsDiv.innerText = 'No results found';
-      searchResults.appendChild(noResultsDiv);
+      activeElements.results.appendChild(noResultsDiv);
 
     } else {
       var resultsList = document.createElement('ul');
       resultsList.classList.add('search-results-list');
-      searchResults.appendChild(resultsList);
+      activeElements.results.appendChild(resultsList);
 
       addResults(resultsList, results, 0, 10, 100, currentSearchIndex);
     }
@@ -414,70 +465,85 @@ function searchLoaded(index, docs) {
     }
   }
 
-  jtd.addEvent(searchInput, 'focus', function(){
-    setTimeout(update, 0);
-  });
+  // Helper function to bind search events
+  function bindSearchEvents(input) {
+    if (!input) return;
+    
+    jtd.addEvent(input, 'focus', function(){
+      setTimeout(function() { update(input); }, 0);
+    });
 
-  jtd.addEvent(searchInput, 'keyup', function(e){
-    switch (e.keyCode) {
-      case 27: // When esc key is pressed, hide the results and clear the field
-        searchInput.value = '';
-        break;
-      case 38: // arrow up
-      case 40: // arrow down
-      case 13: // enter
-        e.preventDefault();
-        return;
-    }
-    update();
-  });
-
-  jtd.addEvent(searchInput, 'keydown', function(e){
-    switch (e.keyCode) {
-      case 38: // arrow up
-        e.preventDefault();
-        var active = document.querySelector('.search-result.active');
-        if (active) {
-          active.classList.remove('active');
-          if (active.parentElement.previousSibling) {
-            var previous = active.parentElement.previousSibling.querySelector('.search-result');
-            previous.classList.add('active');
+    jtd.addEvent(input, 'keyup', function(e){
+      switch (e.keyCode) {
+        case 27: // When esc key is pressed, hide the results and clear the field
+          input.value = '';
+          // Also clear the other input
+          if (input === searchInput && searchInputSidebar) {
+            searchInputSidebar.value = '';
+          } else if (input === searchInputSidebar && searchInput) {
+            searchInput.value = '';
           }
-        }
-        return;
-      case 40: // arrow down
-        e.preventDefault();
-        var active = document.querySelector('.search-result.active');
-        if (active) {
-          if (active.parentElement.nextSibling) {
-            var next = active.parentElement.nextSibling.querySelector('.search-result');
+          break;
+        case 38: // arrow up
+        case 40: // arrow down
+        case 13: // enter
+          e.preventDefault();
+          return;
+      }
+      update(input);
+    });
+
+    jtd.addEvent(input, 'keydown', function(e){
+      switch (e.keyCode) {
+        case 38: // arrow up
+          e.preventDefault();
+          var active = document.querySelector('.search-result.active');
+          if (active) {
             active.classList.remove('active');
-            next.classList.add('active');
+            if (active.parentElement.previousSibling) {
+              var previous = active.parentElement.previousSibling.querySelector('.search-result');
+              previous.classList.add('active');
+            }
           }
-        } else {
-          var next = document.querySelector('.search-result');
-          if (next) {
-            next.classList.add('active');
+          return;
+        case 40: // arrow down
+          e.preventDefault();
+          var active = document.querySelector('.search-result.active');
+          if (active) {
+            if (active.parentElement.nextSibling) {
+              var next = active.parentElement.nextSibling.querySelector('.search-result');
+              active.classList.remove('active');
+              next.classList.add('active');
+            }
+          } else {
+            var next = document.querySelector('.search-result');
+            if (next) {
+              next.classList.add('active');
+            }
           }
-        }
-        return;
-      case 13: // enter
-        e.preventDefault();
-        var active = document.querySelector('.search-result.active');
-        if (active) {
-          active.click();
-        } else {
-          var first = document.querySelector('.search-result');
-          if (first) {
-            first.click();
+          return;
+        case 13: // enter
+          e.preventDefault();
+          var active = document.querySelector('.search-result.active');
+          if (active) {
+            active.click();
+          } else {
+            var first = document.querySelector('.search-result');
+            if (first) {
+              first.click();
+            }
           }
-        }
-        return;
-    }
-  });
+          return;
+      }
+    });
+  }
+
+  // Bind events to both search inputs
+  bindSearchEvents(searchInput);
+  bindSearchEvents(searchInputSidebar);
 
   jtd.addEvent(document, 'click', function(e){
-    if (e.target != searchInput) {
+    if (e.target != searchInput && e.target != searchInputSidebar) {
       hideSearch();
     }
   });
